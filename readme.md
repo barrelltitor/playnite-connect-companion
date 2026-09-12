@@ -12,11 +12,6 @@ companion Playnite Connect extension and MQTT.
 - Let Assist, automations, dashboards, and Home Assistant LLM tools search for
   and launch games.
 
-## Requirements
-
-- Playnite Connect extension 1.0.5 or newer, configured with an MQTT broker.
-- Home Assistant's built-in MQTT integration connected to the same broker.
-- This custom integration.
 
 ## Installation
 
