@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0b2 - 2026-09-12 (Beta 2)
+
+- Renamed the Home Assistant integration to Playnite Connect Companion.
+- Added the Playnite Connect icon and logo for the Home Assistant integration UI.
+
 ## 1.0.0b1 - 2026-09-12 (Beta 1)
 
 Initial public beta of Playnite Connect Companion.
