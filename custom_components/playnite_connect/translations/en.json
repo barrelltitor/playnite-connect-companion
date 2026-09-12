@@ -1,0 +1,28 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "device_id": "Playnite Connect device ID",
+          "cover_transport": "How to retrieve actual Playnite covers",
+          "cover_api_url": "Playnite Connect Cover API URL (HTTP only)",
+          "cover_api_token": "Playnite Connect Cover API token (HTTP only)",
+          "cache_covers": "Cache actual Playnite cover images on Home Assistant"
+        },
+        "title": "Configure Playnite Connect",
+        "description": "MQTT is the default cover transport and needs no HTTP server or token. Choose HTTP only after enabling Playnite Connect's Cover API and network access, then paste its URL and bearer token. The browser never receives the token. Enabling cover caching stores images in your Home Assistant configuration directory and can use substantial disk space for a large library."
+      },
+      "reconfigure": {
+        "data": {
+          "device_id": "Playnite Connect device ID",
+          "cover_transport": "How to retrieve actual Playnite covers",
+          "cover_api_url": "Playnite Connect Cover API URL (HTTP only)",
+          "cover_api_token": "Playnite Connect Cover API token (HTTP only)",
+          "cache_covers": "Cache actual Playnite cover images on Home Assistant"
+        },
+        "title": "Update Playnite Connect",
+        "description": "MQTT is the default and needs no token. For HTTP, enable the optional Cover API in Playnite Connect, then paste its URL and bearer token here. Home Assistant sends that token server-to-server and never exposes it to the browser."
+      }
+    }
+  }
+}

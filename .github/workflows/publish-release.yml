@@ -1,0 +1,43 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build HACS release archive
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          source = Path("custom_components/playnite_connect")
+          assert (source / "manifest.json").is_file()
+          with ZipFile("playnite_connect.zip", "w", ZIP_DEFLATED) as archive:
+              for file in source.rglob("*"):
+                  if file.is_file() and "__pycache__" not in file.parts:
+                      archive.write(
+                          file,
+                          (
+                              Path("custom_components")
+                              / "playnite_connect"
+                              / file.relative_to(source)
+                          ).as_posix(),
+                      )
+          PY
+      - name: Publish GitHub release asset
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Playnite Connect ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'b') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+          fail_on_unmatched_files: true
+          files: playnite_connect.zip

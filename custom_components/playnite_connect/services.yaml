@@ -1,0 +1,48 @@
+search_games:
+  name: Search games
+  description: Search visible Playnite games by name and return exact game IDs for automation or AI follow-up.
+  fields:
+    query:
+      name: Game name
+      description: Full or partial game name to search for.
+      required: true
+      selector:
+        text:
+    device_id:
+      name: Playnite device ID
+      description: Required only if more than one Playnite Connect device is configured.
+      required: false
+      selector:
+        text:
+launch_game:
+  name: Launch game
+  description: Launch one exact Playnite game by the ID returned from search_games.
+  fields:
+    game_id:
+      name: Game ID
+      description: Exact Playnite game ID returned by search_games.
+      required: true
+      selector:
+        text:
+    device_id:
+      name: Playnite device ID
+      description: Required only if more than one Playnite Connect device is configured.
+      required: false
+      selector:
+        text:
+search_and_play:
+  name: Search and play game
+  description: Search visible Playnite games by title. Launches only when exactly one game matches, then returns the outcome and matching games for automation use.
+  fields:
+    game_name:
+      name: Game name
+      description: Full or partial game title to search for and launch when unambiguous.
+      required: true
+      selector:
+        text:
+    device_id:
+      name: Playnite device ID
+      description: Required only if more than one Playnite Connect device is configured.
+      required: false
+      selector:
+        text:
