@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from uuid import UUID
 
@@ -31,6 +32,7 @@ _CONTENT_TYPES = {
 }
 _TRANSPORT_MQTT = "mqtt"
 _TRANSPORT_HTTP = "http"
+_BROWSER_CACHE_SECONDS = 7 * 24 * 60 * 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,15 +133,12 @@ class PlayniteCoverView(HomeAssistantView):
                 _read_cached_cover, cache_dir, game_id
             )
             if cached_cover is not None:
-                return web.Response(
-                    body=cached_cover.data,
-                    content_type=cached_cover.content_type,
-                )
+                return _browser_cached_cover_response(request, cached_cover)
 
         transport = entry_data.get(DATA_COVER_TRANSPORT, _TRANSPORT_MQTT)
         if transport == _TRANSPORT_MQTT:
             return await self._get_mqtt_cover(
-                entry_data, cache_covers, cache_dir, game_id
+                request, entry_data, cache_covers, cache_dir, game_id
             )
         if transport == _TRANSPORT_HTTP:
             return await self._get_http_cover(
@@ -151,6 +150,7 @@ class PlayniteCoverView(HomeAssistantView):
 
     async def _get_mqtt_cover(
         self,
+        request: web.Request,
         entry_data: dict,
         cache_covers: bool,
         cache_dir: str,
@@ -167,9 +167,7 @@ class PlayniteCoverView(HomeAssistantView):
             await self.hass.async_add_executor_job(
                 _write_cached_cover, cache_dir, game_id, cached_cover
             )
-        return web.Response(
-            body=cached_cover.data, content_type=cached_cover.content_type
-        )
+        return _browser_cached_cover_response(request, cached_cover)
 
     async def _get_http_cover(
         self,
@@ -219,19 +217,39 @@ class PlayniteCoverView(HomeAssistantView):
                 await self.hass.async_add_executor_job(
                     _write_cached_cover, cache_dir, game_id, cover
                 )
-                return web.Response(
-                    body=cover.data, content_type=cover.content_type
-                )
+                return _browser_cached_cover_response(request, cover)
 
             # With caching disabled, relay the image in chunks and discard it.
             # HA's authenticated endpoint is the only browser-visible URL.
-            response = web.StreamResponse(content_type=content_type)
+            response = web.StreamResponse(
+                content_type=content_type,
+                headers={"Cache-Control": _browser_cache_control()},
+            )
             await response.prepare(request)
             async for chunk in upstream.content.iter_chunked(64 * 1024):
                 await response.write(chunk)
             await response.write_eof()
             return response
 
+
+def _browser_cached_cover_response(
+    request: web.Request, cover: CachedCover
+) -> web.Response:
+    """Serve a cover with private browser caching and disk-cache revalidation."""
+    etag = f'"{sha256(cover.data).hexdigest()}"'
+    headers = {"Cache-Control": _browser_cache_control(), "ETag": etag}
+    if request.headers.get("If-None-Match") in {etag, "*"}:
+        return web.Response(status=304, headers=headers)
+    return web.Response(
+        body=cover.data,
+        content_type=cover.content_type,
+        headers=headers,
+    )
+
+
+def _browser_cache_control() -> str:
+    """Keep authenticated covers in this browser, never in a shared proxy."""
+    return f"private, max-age={_BROWSER_CACHE_SECONDS}"
 
 def _read_cached_cover(cache_dir: str, game_id: str) -> CachedCover | None:
     """Read a previously fetched cover from HA's configuration directory."""
