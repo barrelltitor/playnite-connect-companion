@@ -1,7 +1,8 @@
-# Playnite Connect for Home Assistant
+# Playnite Connect Companion for Home Assistant
 
-Playnite Connect integrates a Playnite library with Home Assistant through the
-companion Playnite Connect extension and MQTT.
+Playnite Connect Companion is the Home Assistant custom integration for the
+[Playnite Connect](https://github.com/barrelltitor/playnite-connect) extension.
+It connects a Playnite library to Home Assistant through MQTT.
 
 ## Features
 
@@ -12,16 +13,16 @@ companion Playnite Connect extension and MQTT.
 - Let Assist, automations, dashboards, and Home Assistant LLM tools search for
   and launch games.
 
-
 ## Installation
 
-1. Install the Playnite Connect extension in Playnite and configure its MQTT
-   broker settings and Device ID. The default Device ID is `playnite`.
+1. Install the [Playnite Connect](https://github.com/barrelltitor/playnite-connect)
+   extension in Playnite and configure its MQTT broker settings and Device ID.
+   The default Device ID is `playnite`.
 2. Copy this repository's `custom_components/playnite_connect` directory into
    your Home Assistant configuration directory.
 3. Restart Home Assistant.
-4. In **Settings → Devices & services**, add **Playnite Connect** and enter
-   the extension's Device ID.
+4. In **Settings → Devices & services**, add **Playnite Connect Companion**
+   and enter the extension's Device ID.
 5. Open the Playnite Connect media player and choose **Browse Media**.
 
 The integration requests a library snapshot when it starts and uses the
@@ -34,7 +35,8 @@ Artwork can be delivered in either of two ways:
 - **MQTT** (default): images are transferred in bounded MQTT chunks only when
   Home Assistant requests them.
 - **HTTP Cover API**: enable **Cover API** and network access in the Playnite
-  Connect settings, then enter its URL and token in the integration options.
+  Connect extension settings, then enter its URL and token in the integration
+  options.
 
 Artwork caching is optional. When enabled, Home Assistant stores cached covers
 under `playnite_connect_covers` in its configuration directory. A large

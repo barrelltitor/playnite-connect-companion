@@ -1,4 +1,4 @@
-"""Set up the local Playnite Connect integration."""
+"""Set up Playnite Connect Companion."""
 
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ async def async_migrate_entry(
             config_entry, data=data, version=6
         )
         _LOGGER.info(
-            "Migrated Playnite Connect entry; choose MQTT or HTTP covers "
+            "Migrated Playnite Connect Companion entry; choose MQTT or HTTP covers "
             "when reconfiguring it."
         )
     return True
@@ -206,7 +206,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "remove_device_version_listener": remove_device_version_listener,
     }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _LOGGER.info("Configured Playnite Connect for device %s", device_id)
+    _LOGGER.info("Configured Playnite Connect Companion for device %s", device_id)
     return True
 
 

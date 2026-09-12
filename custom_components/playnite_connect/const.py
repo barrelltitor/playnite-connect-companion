@@ -1,4 +1,4 @@
-"""Constants for the local Playnite Connect integration."""
+"""Constants for Playnite Connect Companion."""
 
 DOMAIN = "playnite_connect"
 

@@ -1,4 +1,4 @@
-"""Configuration flow for the local Playnite Connect protocol."""
+"""Configuration flow for Playnite Connect Companion."""
 
 from typing import Any
 from urllib.parse import urlparse
@@ -25,7 +25,7 @@ _TRANSPORT_OPTIONS = {
 
 
 class PlayniteConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Configure one local Playnite Connect instance."""
+    """Configure one Playnite Connect Companion instance."""
 
     VERSION = 6
 
@@ -38,7 +38,7 @@ class PlayniteConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(device_id)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
-                    title="Playnite Connect", data=user_input
+                    title="Playnite Connect Companion", data=user_input
                 )
             return self.async_show_form(
                 step_id="user",
@@ -59,7 +59,7 @@ class PlayniteConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(device_id)
                 self._abort_if_unique_id_mismatch()
                 return self.async_update_reload_and_abort(
-                    entry, data_updates=user_input, title="Playnite Connect"
+                    entry, data_updates=user_input, title="Playnite Connect Companion"
                 )
             return self.async_show_form(
                 step_id="reconfigure",

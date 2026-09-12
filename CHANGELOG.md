@@ -2,7 +2,7 @@
 
 ## 1.0.0b1 - 2026-09-12 (Beta 1)
 
-Initial public beta of Playnite Connect.
+Initial public beta of Playnite Connect Companion.
 
 - Connects the local Playnite extension to Home Assistant over MQTT.
 - Provides a browseable media-player library with real covers, current-game state, media search, and safe game launch/stop controls.

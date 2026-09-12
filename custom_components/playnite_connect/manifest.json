@@ -1,12 +1,12 @@
 {
   "domain": "playnite_connect",
-  "name": "Playnite Connect",
+  "name": "Playnite Connect Companion",
   "codeowners": ["@barrelltitor"],
   "config_flow": true,
   "dependencies": ["mqtt"],
-  "documentation": "https://github.com/barrelltitor/playnite-connect",
+  "documentation": "https://github.com/barrelltitor/playnite-connect-companion",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/barrelltitor/playnite-connect/issues",
+  "issue_tracker": "https://github.com/barrelltitor/playnite-connect-companion/issues",
   "requirements": [],
   "version": "1.0.0b1"
 }
