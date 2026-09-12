@@ -1,7 +1,5 @@
 {
   "name": "Playnite Connect Companion",
   "content_in_root": false,
-  "filename": "playnite_connect.zip",
-  "homeassistant": "2024.10.1",
-  "zip_release": true
+  "homeassistant": "2024.10.1"
 }
