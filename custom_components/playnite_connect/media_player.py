@@ -172,13 +172,29 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
         return self._browse_filter(filter_name, filter_value)
 
     async def async_search_media(self, query: SearchMediaQuery) -> SearchMedia:
-        """Return playable game results for HA's search_media action."""
+        """Return playable game results scoped to the browsed folder."""
         await self._library.async_wait_for_library()
+        matches = find_games(self._library, query.search_query, limit=None)
+        filter_data = (
+            self._parse_filter_id(query.media_content_id)
+            if query.media_content_id
+            else None
+        )
+        if filter_data is not None:
+            filter_name, filter_value = filter_data
+            scoped_games = self._filtered_games(filter_name, filter_value)
+            matching_ids = {game.id for game in matches}
+            if filter_name == "recent":
+                # Playnite's Recent Activity view is ordered newest-first, not
+                # by title relevance. Keep that order when searching within it.
+                matches = [
+                    game for game in scoped_games if game.id in matching_ids
+                ]
+            else:
+                scoped_ids = {game.id for game in scoped_games}
+                matches = [game for game in matches if game.id in scoped_ids]
         return SearchMedia(
-            result=[
-                self._browse_game(game)
-                for game in find_games(self._library, query.search_query)
-            ]
+            result=[self._browse_game(game) for game in matches[:20]]
         )
 
     async def async_play_media(
@@ -209,7 +225,11 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
     def _browse_root(self) -> BrowseMedia:
         """Build the filter menu from metadata already synced from Playnite."""
         children = [
-            self._browse_folder(title, self._filter_id(name))
+            self._browse_folder(
+                title,
+                self._filter_id(name),
+                self._representative_game(name),
+            )
             for name, title in {**_DIRECT_FILTERS, **_GROUP_FILTERS}.items()
         ]
         return BrowseMedia(
@@ -231,40 +251,11 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
         visible_games = tuple(
             game for game in self._library.games if not game.hidden
         )
-        if filter_name == "recent" and filter_value is None:
-            games = tuple(
-                game for game in self._library.recent_games if not game.hidden
-            )
-            return self._browse_games_page(
-                _DIRECT_FILTERS[filter_name], self._filter_id(filter_name), games
-            )
-        if filter_name == "all" and filter_value is None:
+        if filter_name in _DIRECT_FILTERS and filter_value is None:
             return self._browse_games_page(
                 _DIRECT_FILTERS[filter_name],
                 self._filter_id(filter_name),
-                self._sort_games(visible_games),
-            )
-        if filter_name == "installed" and filter_value is None:
-            return self._browse_games_page(
-                _DIRECT_FILTERS[filter_name],
-                self._filter_id(filter_name),
-                self._sort_games(
-                    game for game in visible_games if game.is_installed
-                ),
-            )
-        if filter_name == "not-installed" and filter_value is None:
-            return self._browse_games_page(
-                _DIRECT_FILTERS[filter_name],
-                self._filter_id(filter_name),
-                self._sort_games(
-                    game for game in visible_games if not game.is_installed
-                ),
-            )
-        if filter_name == "favorites" and filter_value is None:
-            return self._browse_games_page(
-                _DIRECT_FILTERS[filter_name],
-                self._filter_id(filter_name),
-                self._sort_games(game for game in visible_games if game.favorite),
+                self._filtered_games(filter_name),
             )
         if filter_name not in _GROUP_FILTERS:
             raise BrowseError(f"Unknown Playnite filter: {filter_name}")
@@ -283,6 +274,7 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
                     self._browse_folder(
                         f"{value} ({self._group_game_count(filter_name, value, visible_games)})",
                         self._filter_id(filter_name, value),
+                        self._representative_game(filter_name, value),
                     )
                     for value in values
                 ],
@@ -293,12 +285,62 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
         return self._browse_games_page(
             filter_value,
             self._filter_id(filter_name, filter_value),
-            self._sort_games(
+            self._filtered_games(filter_name, filter_value),
+        )
+
+    def _filtered_games(
+        self, filter_name: str, filter_value: str | None = None
+    ) -> tuple[PlayniteGame, ...]:
+        """Return games for one virtual folder in its displayed order."""
+        visible_games = tuple(
+            game for game in self._library.games if not game.hidden
+        )
+        if filter_name == "recent" and filter_value is None:
+            return tuple(
+                game for game in self._library.recent_games if not game.hidden
+            )
+        if filter_name == "all" and filter_value is None:
+            return self._sort_games(visible_games)
+        if filter_name == "installed" and filter_value is None:
+            return self._sort_games(
+                game for game in visible_games if game.is_installed
+            )
+        if filter_name == "not-installed" and filter_value is None:
+            return self._sort_games(
+                game for game in visible_games if not game.is_installed
+            )
+        if filter_name == "favorites" and filter_value is None:
+            return self._sort_games(
+                game for game in visible_games if game.favorite
+            )
+        if filter_name in _GROUP_FILTERS:
+            if filter_value is None:
+                return self._sort_games(visible_games)
+            return self._sort_games(
                 game
                 for game in visible_games
                 if self._game_has_group_value(game, filter_name, filter_value)
-            ),
-        )
+            )
+        raise BrowseError(f"Unknown Playnite filter: {filter_name}")
+
+    def _representative_game(
+        self, filter_name: str, filter_value: str | None = None
+    ) -> PlayniteGame | None:
+        """Choose a stable representative cover without duplicating index tiles."""
+        games = self._filtered_games(filter_name, filter_value)
+        if not games:
+            return None
+        if filter_name not in _GROUP_FILTERS or filter_value is not None:
+            return games[0]
+
+        # A metadata index (Genres, Platforms, and so on) contains the whole
+        # library, so its alphabetical first game would make every index tile
+        # show the same cover. Spread the six index tiles across the stable,
+        # alphabetically sorted game list instead. This is deterministic: it
+        # does not shuffle after a browser refresh or HA restart.
+        position = tuple(_GROUP_FILTERS).index(filter_name) + 1
+        index = len(games) * position // (len(_GROUP_FILTERS) + 1)
+        return games[min(index, len(games) - 1)]
 
     @staticmethod
     def _sort_games(games: Any) -> tuple[PlayniteGame, ...]:
@@ -365,8 +407,13 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
         filter_name, separator, raw_value = raw_filter.partition(":")
         return filter_name, unquote(raw_value) if separator else None
 
-    def _browse_folder(self, title: str, media_content_id: str) -> BrowseMedia:
-        """Build one non-playable virtual media-browser folder."""
+    def _browse_folder(
+        self,
+        title: str,
+        media_content_id: str,
+        representative_game: PlayniteGame | None = None,
+    ) -> BrowseMedia:
+        """Build a folder with the first displayed game's real cover."""
         return BrowseMedia(
             title=title,
             media_class=MediaClass.DIRECTORY,
@@ -374,6 +421,11 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
             media_content_type=MediaType.GAME,
             can_play=False,
             can_expand=True,
+            thumbnail=(
+                self._cover_url(representative_game)
+                if representative_game is not None
+                else None
+            ),
         )
 
     def _browse_games_page(
@@ -404,5 +456,9 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
             media_content_type=MediaType.GAME,
             can_play=True,
             can_expand=False,
-            thumbnail=f"/api/{DOMAIN}/{self._entry.entry_id}/cover/{game.id}",
+            thumbnail=self._cover_url(game),
         )
+
+    def _cover_url(self, game: PlayniteGame) -> str:
+        """Return the authenticated HA cover endpoint for one Playnite game."""
+        return f"/api/{DOMAIN}/{self._entry.entry_id}/cover/{game.id}"

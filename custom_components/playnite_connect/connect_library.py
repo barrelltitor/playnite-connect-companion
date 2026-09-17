@@ -35,6 +35,9 @@ from .const import (
 
 _MAX_COVER_BYTES = 10 * 1024 * 1024
 _MAX_COVER_CHUNKS = 256
+# Home Assistant's media browser can request many thumbnails at once. Keep MQTT
+# transfer pressure bounded per configured Playnite desktop.
+_MAX_CONCURRENT_COVER_REQUESTS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +192,9 @@ class PlayniteConnectLibrary:
         self._cover_waiters: dict[str, asyncio.Future[PlayniteCover]] = {}
         self._cover_chunks: dict[str, dict[int, bytes]] = {}
         self._cover_metadata: dict[str, tuple[int, str, str]] = {}
+        self._cover_request_semaphore = asyncio.Semaphore(
+            _MAX_CONCURRENT_COVER_REQUESTS
+        )
         self._selected_game_id: str | None = None
         self._active_desktop_view: str | None = None
         self._playnite_version: str | None = None
@@ -395,33 +401,36 @@ class PlayniteConnectLibrary:
         self, game_id: str, image_type: str = "cover"
     ) -> PlayniteCover:
         """Request one local image outside the library snapshot."""
-        request_id = str(uuid4())
-        future: asyncio.Future[PlayniteCover] = (
-            asyncio.get_running_loop().create_future()
-        )
-        self._cover_waiters[request_id] = future
-        try:
-            await async_publish(
-                self._hass,
-                self._topic(LIBRARY_COVER_REQUEST_TOPIC),
-                json.dumps(
-                    {
-                        "requestId": request_id,
-                        "gameId": game_id,
-                        "imageType": image_type,
-                    }
-                ),
-                qos=1,
+        # Acquire before publishing so a queued browser thumbnail does not spend
+        # its response timeout waiting behind other MQTT cover transfers.
+        async with self._cover_request_semaphore:
+            request_id = str(uuid4())
+            future: asyncio.Future[PlayniteCover] = (
+                asyncio.get_running_loop().create_future()
             )
-            return await asyncio.wait_for(future, timeout=30)
-        except TimeoutError as err:
-            raise HomeAssistantError(
-                "Playnite did not return this cover image"
-            ) from err
-        finally:
-            self._cover_waiters.pop(request_id, None)
-            self._cover_chunks.pop(request_id, None)
-            self._cover_metadata.pop(request_id, None)
+            self._cover_waiters[request_id] = future
+            try:
+                await async_publish(
+                    self._hass,
+                    self._topic(LIBRARY_COVER_REQUEST_TOPIC),
+                    json.dumps(
+                        {
+                            "requestId": request_id,
+                            "gameId": game_id,
+                            "imageType": image_type,
+                        }
+                    ),
+                    qos=1,
+                )
+                return await asyncio.wait_for(future, timeout=30)
+            except TimeoutError as err:
+                raise HomeAssistantError(
+                    "Playnite did not return this cover image"
+                ) from err
+            finally:
+                self._cover_waiters.pop(request_id, None)
+                self._cover_chunks.pop(request_id, None)
+                self._cover_metadata.pop(request_id, None)
 
     async def _async_handle_connection(self, message: ReceiveMessage) -> None:
         self._online = message.payload.strip().casefold() == "online"

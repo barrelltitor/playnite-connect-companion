@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
+from typing import Any
 
 import voluptuous as vol
 
@@ -34,6 +36,13 @@ from .const import (
 )
 from .cover import PlayniteCoverView
 from .game_tools import (
+    DEFAULT_SEARCH_LIMIT,
+    DEFAULT_SEARCH_OFFSET,
+    FAVORITE_STATES,
+    INSTALLATION_STATES,
+    MAX_SEARCH_LIMIT,
+    RUNNING_STATES,
+    SEARCH_SORTS,
     async_launch_game,
     async_search_and_play,
     async_search_games,
@@ -49,11 +58,45 @@ ATTR_QUERY = "query"
 ATTR_GAME_NAME = "game_name"
 ATTR_GAME_ID = "game_id"
 ATTR_DEVICE_ID = "device_id"
+ATTR_LIMIT = "limit"
+ATTR_OFFSET = "offset"
+ATTR_INSTALLATION_STATE = "installation_state"
+ATTR_FAVORITE_STATE = "favorite_state"
+ATTR_RUNNING_STATE = "running_state"
+ATTR_SOURCE = "source"
+ATTR_PLATFORM = "platform"
+ATTR_CATEGORY = "category"
+ATTR_TAG = "tag"
+ATTR_GENRE = "genre"
+ATTR_FEATURE = "feature"
+ATTR_SORT_BY = "sort_by"
+
+_SEARCH_FILTER_SCHEMA = {
+    vol.Optional(ATTR_INSTALLATION_STATE, default="both"): vol.In(
+        INSTALLATION_STATES
+    ),
+    vol.Optional(ATTR_FAVORITE_STATE, default="both"): vol.In(FAVORITE_STATES),
+    vol.Optional(ATTR_RUNNING_STATE, default="both"): vol.In(RUNNING_STATES),
+    vol.Optional(ATTR_SOURCE): cv.string,
+    vol.Optional(ATTR_PLATFORM): cv.string,
+    vol.Optional(ATTR_CATEGORY): cv.string,
+    vol.Optional(ATTR_TAG): cv.string,
+    vol.Optional(ATTR_GENRE): cv.string,
+    vol.Optional(ATTR_FEATURE): cv.string,
+}
 
 _SEARCH_GAMES_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_QUERY): vol.All(cv.string, vol.Length(min=1)),
+        vol.Optional(ATTR_QUERY, default=""): cv.string,
         vol.Optional(ATTR_DEVICE_ID): cv.string,
+        vol.Optional(ATTR_LIMIT, default=DEFAULT_SEARCH_LIMIT): vol.All(
+            cv.positive_int, vol.Range(max=MAX_SEARCH_LIMIT)
+        ),
+        vol.Optional(ATTR_OFFSET, default=DEFAULT_SEARCH_OFFSET): vol.All(
+            vol.Coerce(int), vol.Range(min=0)
+        ),
+        vol.Optional(ATTR_SORT_BY, default="relevance"): vol.In(SEARCH_SORTS),
+        **_SEARCH_FILTER_SCHEMA,
     }
 )
 _LAUNCH_GAME_SCHEMA = vol.Schema(
@@ -66,8 +109,29 @@ _SEARCH_AND_PLAY_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_GAME_NAME): vol.All(cv.string, vol.Length(min=1)),
         vol.Optional(ATTR_DEVICE_ID): cv.string,
+        **_SEARCH_FILTER_SCHEMA,
     }
 )
+
+
+def _search_filter_kwargs(
+    data: Mapping[str, Any], *, include_sort: bool = True
+) -> dict[str, Any]:
+    """Map validated HA service fields to shared search helper arguments."""
+    filters = {
+        "installation_state": data.get(ATTR_INSTALLATION_STATE, "both"),
+        "favorite_state": data.get(ATTR_FAVORITE_STATE, "both"),
+        "running_state": data.get(ATTR_RUNNING_STATE, "both"),
+        "source": data.get(ATTR_SOURCE),
+        "platform": data.get(ATTR_PLATFORM),
+        "category": data.get(ATTR_CATEGORY),
+        "tag": data.get(ATTR_TAG),
+        "genre": data.get(ATTR_GENRE),
+        "feature": data.get(ATTR_FEATURE),
+    }
+    if include_sort:
+        filters["sort_by"] = data.get(ATTR_SORT_BY, "relevance")
+    return filters
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -80,6 +144,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             hass,
             call.data[ATTR_QUERY],
             call.data.get(ATTR_DEVICE_ID),
+            call.data[ATTR_LIMIT],
+            call.data[ATTR_OFFSET],
+            **_search_filter_kwargs(call.data),
         )
 
     async def handle_launch_game(call: ServiceCall) -> ServiceResponse | None:
@@ -96,6 +163,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             hass,
             call.data[ATTR_GAME_NAME],
             call.data.get(ATTR_DEVICE_ID),
+            **_search_filter_kwargs(call.data, include_sort=False),
         )
 
     hass.services.async_register(

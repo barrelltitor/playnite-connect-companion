@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0b3 - 2026-09-17 (Beta 3)
+
+- Added an **Available** connectivity binary sensor for Playnite startup flows.
+- Improved Media Browser library browsing, covers, folders, and recent activity.
+- Added filtered and paged game search for automations and Home Assistant LLM
+  tools, including installation state, favourite/running state, metadata
+  filters, sorting, and explicit truncated-result information.
+- Added safer game-launch search responses and improved lifecycle state data.
+- Expanded the documentation with screenshots and a HASS.Agent startup example.
+
 ## 1.0.0b2 - 2026-09-12 (Beta 2)
 
 - Renamed the Home Assistant integration to Playnite Connect Companion.

@@ -1,11 +1,12 @@
 search_games:
   name: Search games
-  description: Search visible Playnite games by name and return exact game IDs for automation or AI follow-up.
+  description: Search visible Playnite games by title and filters, returning exact game IDs for automation or AI follow-up. The response reports whether its result list was truncated.
   fields:
     query:
       name: Game name
-      description: Full or partial game name to search for.
-      required: true
+      description: Full or partial game name to search for. Leave blank for a filter-only search.
+      required: false
+      default: ""
       selector:
         text:
     device_id:
@@ -14,6 +15,117 @@ search_games:
       required: false
       selector:
         text:
+    limit:
+      name: Maximum results
+      description: Maximum number of matching games to return. Defaults to 20; responses identify when more matches exist and provide a next offset.
+      required: false
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    offset:
+      name: Result offset
+      description: Number of filtered results to skip before returning this page. Use the next offset in a truncated response to fetch the next page.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          mode: box
+    installation_state:
+      name: Installation state
+      description: Show both installed and uninstalled games by default, or filter to one state.
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - label: Both installed and uninstalled
+              value: both
+            - label: Installed only
+              value: installed
+            - label: Uninstalled only
+              value: uninstalled
+    favorite_state:
+      name: Favorite state
+      description: Optionally limit results to favorite or non-favorite games.
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - label: Both favorite and non-favorite
+              value: both
+            - label: Favorites only
+              value: favorite
+            - label: Non-favorites only
+              value: not_favorite
+    running_state:
+      name: Running state
+      description: Optionally limit results to games Playnite reports as running or launching.
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - label: Both running and not running
+              value: both
+            - label: Running or launching only
+              value: running
+            - label: Not running only
+              value: not_running
+    source:
+      name: Source
+      description: Exact Playnite source to match, such as Steam or GOG. Matching ignores case.
+      required: false
+      selector:
+        text:
+    platform:
+      name: Platform
+      description: Exact Playnite platform name to match, such as PC (Windows). Matching ignores case.
+      required: false
+      selector:
+        text:
+    genre:
+      name: Genre
+      description: Exact Playnite genre to match. Matching ignores case.
+      required: false
+      selector:
+        text:
+    category:
+      name: Category
+      description: Exact Playnite category to match. Matching ignores case.
+      required: false
+      selector:
+        text:
+    tag:
+      name: Tag
+      description: Exact Playnite tag to match. Matching ignores case.
+      required: false
+      selector:
+        text:
+    feature:
+      name: Feature
+      description: Exact Playnite feature to match. Matching ignores case.
+      required: false
+      selector:
+        text:
+    sort_by:
+      name: Sort results by
+      description: Relevance ranks title matches first. Recent Activity places most recently played games first.
+      required: false
+      default: relevance
+      selector:
+        select:
+          options:
+            - label: Relevance
+              value: relevance
+            - label: Name
+              value: name
+            - label: Recent Activity
+              value: recent_activity
 launch_game:
   name: Launch game
   description: Launch one exact Playnite game by the ID returned from search_games.
@@ -43,6 +155,84 @@ search_and_play:
     device_id:
       name: Playnite device ID
       description: Required only if more than one Playnite Connect device is configured.
+      required: false
+      selector:
+        text:
+    installation_state:
+      name: Installation state
+      description: Both is the default. Choose installed or uninstalled to narrow duplicate titles.
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - label: Both installed and uninstalled
+              value: both
+            - label: Installed only
+              value: installed
+            - label: Uninstalled only
+              value: uninstalled
+    favorite_state:
+      name: Favorite state
+      description: Optionally require a favorite or non-favorite game match.
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - label: Both favorite and non-favorite
+              value: both
+            - label: Favorites only
+              value: favorite
+            - label: Non-favorites only
+              value: not_favorite
+    running_state:
+      name: Running state
+      description: Optionally require a game Playnite reports as running or launching.
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - label: Both running and not running
+              value: both
+            - label: Running or launching only
+              value: running
+            - label: Not running only
+              value: not_running
+    source:
+      name: Source
+      description: Exact Playnite source to match, such as Steam or GOG. Matching ignores case.
+      required: false
+      selector:
+        text:
+    platform:
+      name: Platform
+      description: Exact Playnite platform name to match, such as PC (Windows). Matching ignores case.
+      required: false
+      selector:
+        text:
+    genre:
+      name: Genre
+      description: Exact Playnite genre to match. Matching ignores case.
+      required: false
+      selector:
+        text:
+    category:
+      name: Category
+      description: Exact Playnite category to match. Matching ignores case.
+      required: false
+      selector:
+        text:
+    tag:
+      name: Tag
+      description: Exact Playnite tag to match. Matching ignores case.
+      required: false
+      selector:
+        text:
+    feature:
+      name: Feature
+      description: Exact Playnite feature to match. Matching ignores case.
       required: false
       selector:
         text:
