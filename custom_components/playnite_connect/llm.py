@@ -25,7 +25,6 @@ from .game_tools import (
     async_search_games,
 )
 
-
 _SEARCH_FILTER_PARAMETERS = {
     vol.Optional("installation_state", default="both"): vol.In(
         INSTALLATION_STATES
@@ -177,7 +176,10 @@ def async_get_tools(
     hass: HomeAssistant, llm_context: LLMContext, api_id: str
 ) -> llm.LLMTools | None:
     """Expose safe Playnite game controls to configured HA LLM APIs."""
-    if not hass.data.get(DOMAIN):
+    if not any(
+        entry.runtime_data is not None
+        for entry in hass.config_entries.async_entries(DOMAIN)
+    ):
         return None
     return llm.LLMTools(
         tools=[

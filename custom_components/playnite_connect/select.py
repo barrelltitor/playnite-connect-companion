@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import DATA_LIBRARY, DOMAIN
 from .connect_library import PlayniteGame, PlayniteConnectLibrary
+from .runtime_data import PlayniteConnectConfigEntry, get_runtime_data
+
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
+    hass: HomeAssistant, entry: PlayniteConnectConfigEntry, async_add_entities
 ) -> None:
     """Add the real Playnite selection control."""
     async_add_entities([PlayniteSelectedGameSelect(hass, entry)])
@@ -26,17 +27,18 @@ class PlayniteSelectedGameSelect(SelectEntity):
     _attr_icon = "mdi:selection"
     _attr_should_poll = False
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+    ) -> None:
         self.hass = hass
         self._entry = entry
-        self._library: PlayniteConnectLibrary = hass.data[DOMAIN][
-            entry.entry_id
-        ][DATA_LIBRARY]
+        self._runtime_data = get_runtime_data(entry)
+        self._library: PlayniteConnectLibrary = self._runtime_data["library"]
         self._attr_unique_id = f"{entry.entry_id}_selected_game"
 
     @property
     def device_info(self):
-        device = self.hass.data[DOMAIN][self._entry.entry_id]["device"]
+        device = self._runtime_data["device"]
         return {"identifiers": device.identifiers}
 
     @property
@@ -81,6 +83,7 @@ class PlayniteSelectedGameSelect(SelectEntity):
         if selected_game_id is None:
             return None
         return {"game_id": selected_game_id}
+
     async def async_select_option(self, option: str) -> None:
         game = self._options_by_name.get(option)
         if game is None:

@@ -13,8 +13,8 @@ It connects a Playnite library to Home Assistant through MQTT.
 - Browse and search the Playnite library through a single `media_player` entity.
 - Launch, stop, install, uninstall, and restart games.
 - Show the current game, selected game, active Playnite view, and game artwork.
-- Expose a connectivity binary sensor so automations can wait for Playnite
-  Connect to become reachable.
+- Mark the Playnite Library media-player entity `unavailable` while Playnite
+  Connect is offline, so automations can wait for it to return.
 - Publish real Playnite game lifecycle events for Home Assistant automations.
 - Make game search and launch available to automations, dashboards, and Home
   Assistant LLM tools.
@@ -28,6 +28,10 @@ It connects a Playnite library to Home Assistant through MQTT.
 ### Search games
 
 ![Search results inside Recent Activity](docs/images/media-search.jpg)
+
+## Requirements
+
+Home Assistant 2025.5 or newer is required for the media-player search API.
 
 ## Installation
 
@@ -75,14 +79,11 @@ space.
 
 ## Availability
 
-The **Available** connectivity binary sensor is `on` while the Playnite Connect
-desktop extension is connected to MQTT and can accept commands. It is `off`
-while it is unavailable, so an automation can start Playnite, wait for it to
-come online, and then launch a game.
+The **Playnite Library** entity is `idle` or `playing` when connected and
+`unavailable` when disconnected from MQTT.
 
-For example, [HASS.Agent](https://github.com/hass-agent/hass.agent) can expose
-an action that starts Playnite. An automation can invoke
-that action when **Available** is off, wait for the sensor to turn on, then use
+Use [HASS.Agent](https://github.com/hass-agent/hass.agent) to start Playnite
+when the entity is unavailable, then wait for it to reconnect before calling
 `playnite_connect.search_and_play` or `playnite_connect.launch_game`.
 
 ## Events
@@ -106,10 +107,10 @@ The media player supports Home Assistant's standard
 `media_player.search_media` and `media_player.play_media` actions. The
 integration also provides these actions:
 
-- `playnite_connect.search_games` — finds visible games by name and returns
+- `playnite_connect.search_games`: finds visible games by name and returns
   their exact Playnite game IDs.
-- `playnite_connect.launch_game` — launches a game by exact `game_id`.
-- `playnite_connect.search_and_play` — searches by name and launches a game
+- `playnite_connect.launch_game`: launches a game by exact `game_id`.
+- `playnite_connect.search_and_play`: searches by name and launches a game
   only when exactly one game matches.
 
 Use `search_and_play` in an automation when it must never choose between
@@ -152,6 +153,17 @@ stopping an unrelated program, the extension only stops processes whose
 executable path is inside the selected game's configured installation
 directory. If it cannot identify such a process, the stop request fails rather
 than risking an unrelated process.
+
+## Removing the integration
+
+1. Remove **Playnite Connect Companion** from **Settings → Devices & services**.
+2. Delete `custom_components/playnite_connect` from your Home Assistant
+   configuration directory.
+3. Restart Home Assistant.
+
+If cover caching was enabled, the cached images remain in
+`<config>/playnite_connect_covers`; delete that folder separately if you also
+want to reclaim its disk space.
 
 ## Honorable mentions
 

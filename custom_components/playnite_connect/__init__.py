@@ -8,13 +8,14 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.components import mqtt
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
 )
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 
@@ -24,12 +25,6 @@ from .const import (
     CONF_COVER_API_URL,
     CONF_COVER_TRANSPORT,
     CONF_DEVICE_ID,
-    DATA_CACHE_COVERS,
-    DATA_COVER_API_TOKEN,
-    DATA_COVER_API_URL,
-    DATA_COVER_TRANSPORT,
-    DATA_DEVICE_ID,
-    DATA_LIBRARY,
     DEFAULT_NAME,
     DOMAIN,
     PLATFORMS,
@@ -48,6 +43,10 @@ from .game_tools import (
     async_search_games,
 )
 from .connect_library import PlayniteLifecycleEvent, PlayniteConnectLibrary
+from .runtime_data import (
+    PlayniteConnectConfigEntry,
+    PlayniteConnectRuntimeData,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -137,8 +136,6 @@ def _search_filter_kwargs(
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register search and launch services independently of a loaded entry."""
 
-
-
     async def handle_search_games(call: ServiceCall) -> ServiceResponse:
         return await async_search_games(
             hass,
@@ -191,7 +188,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_migrate_entry(
-    hass: HomeAssistant, config_entry: ConfigEntry
+    hass: HomeAssistant, config_entry: PlayniteConnectConfigEntry
 ) -> bool:
     """Migrate direct local entries to the latest local protocol options."""
     if config_entry.version < 6:
@@ -209,25 +206,18 @@ async def async_migrate_entry(
             config_entry, data=data, version=6
         )
         _LOGGER.info(
-            "Migrated Playnite Connect Companion entry; choose MQTT or HTTP covers "
-            "when reconfiguring it."
+            "Migrated Playnite Connect Companion entry; choose MQTT or HTTP "
+            "covers when reconfiguring it."
         )
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up one browseable Playnite library from MQTT."""
-    device_id = entry.data.get(CONF_DEVICE_ID)
-    if not isinstance(device_id, str) or not device_id:
-        _LOGGER.error(
-            "This Playnite entry needs reconfiguration with an MQTT device ID."
-        )
-        return False
-
-    if not hass.data.get(f"{DOMAIN}_cover_view_registered"):
-        hass.http.register_view(PlayniteCoverView(hass))
-        hass.data[f"{DOMAIN}_cover_view_registered"] = True
-
+async def _create_entry_runtime_data(
+    hass: HomeAssistant,
+    entry: PlayniteConnectConfigEntry,
+    device_id: str,
+) -> PlayniteConnectRuntimeData:
+    """Build the device and MQTT library owned by this config entry."""
     device_registry = dr.async_get(hass)
     device = device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
@@ -249,8 +239,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     def update_device_version() -> None:
-        # The retained status packet carries the real Playnite application
-        # version.
+        # The retained status message carries Playnite version information.
         if library.playnite_version:
             device_registry.async_update_device(
                 device.id, sw_version=library.playnite_version
@@ -259,33 +248,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     remove_device_version_listener = library.async_add_listener(
         update_device_version
     )
-    await library.async_start()
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "device": device,
-        DATA_DEVICE_ID: device_id,
-        DATA_LIBRARY: library,
-        DATA_CACHE_COVERS: bool(entry.data.get(CONF_CACHE_COVERS, False)),
-        DATA_COVER_TRANSPORT: str(
-            entry.data.get(CONF_COVER_TRANSPORT, "mqtt")
-        ),
-        DATA_COVER_API_URL: str(entry.data.get(CONF_COVER_API_URL, "")),
-        DATA_COVER_API_TOKEN: str(entry.data.get(CONF_COVER_API_TOKEN, "")),
-        "remove_lifecycle_listener": remove_lifecycle_listener,
-        "remove_device_version_listener": remove_device_version_listener,
-    }
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _LOGGER.info("Configured Playnite Connect Companion for device %s", device_id)
+    return PlayniteConnectRuntimeData(
+        device=device,
+        device_id=device_id,
+        library=library,
+        cache_covers=bool(entry.data.get(CONF_CACHE_COVERS, False)),
+        cover_transport=str(entry.data.get(CONF_COVER_TRANSPORT, "mqtt")),
+        cover_api_url=str(entry.data.get(CONF_COVER_API_URL, "")),
+        cover_api_token=str(entry.data.get(CONF_COVER_API_TOKEN, "")),
+        remove_lifecycle_listener=remove_lifecycle_listener,
+        remove_device_version_listener=remove_device_version_listener,
+    )
+
+
+async def _cleanup_failed_setup(entry: PlayniteConnectConfigEntry) -> None:
+    """Remove callbacks and subscriptions after entry setup fails."""
+    runtime_data = entry.runtime_data
+    if runtime_data is None:
+        return
+    runtime_data["remove_lifecycle_listener"]()
+    runtime_data["remove_device_version_listener"]()
+    await runtime_data["library"].async_stop()
+    entry.runtime_data = None
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+) -> bool:
+    """Set up one browseable Playnite library from MQTT."""
+    if not mqtt.is_connected(hass):
+        raise ConfigEntryNotReady(
+            "Home Assistant's MQTT broker is not connected"
+        )
+
+    device_id = entry.data.get(CONF_DEVICE_ID)
+    if not isinstance(device_id, str) or not device_id:
+        _LOGGER.error(
+            "This Playnite entry needs reconfiguration with an MQTT device ID."
+        )
+        return False
+
+    if not hass.data.get(f"{DOMAIN}_cover_view_registered"):
+        hass.http.register_view(PlayniteCoverView(hass))
+        hass.data[f"{DOMAIN}_cover_view_registered"] = True
+
+    runtime_data = await _create_entry_runtime_data(hass, entry, device_id)
+    entry.runtime_data = runtime_data
+    try:
+        await runtime_data["library"].async_start()
+    except Exception as err:
+        await _cleanup_failed_setup(entry)
+        raise ConfigEntryNotReady(
+            "Could not subscribe to the Home Assistant MQTT broker"
+        ) from err
+
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        await _cleanup_failed_setup(entry)
+        raise
+    _LOGGER.info(
+        "Configured Playnite Connect Companion for device %s", device_id
+    )
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(
+    hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(
         entry, PLATFORMS
     )
-    if unload_ok:
-        data = hass.data[DOMAIN].pop(entry.entry_id)
-        data["remove_lifecycle_listener"]()
-        data["remove_device_version_listener"]()
-        await data[DATA_LIBRARY].async_stop()
+    if unload_ok and entry.runtime_data is not None:
+        runtime_data = entry.runtime_data
+        runtime_data["remove_lifecycle_listener"]()
+        runtime_data["remove_device_version_listener"]()
+        await runtime_data["library"].async_stop()
+        entry.runtime_data = None
     return unload_ok

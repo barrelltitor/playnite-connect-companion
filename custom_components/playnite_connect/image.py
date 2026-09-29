@@ -5,18 +5,19 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from homeassistant.components.image import ImageEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-
-from .const import DATA_LIBRARY, DOMAIN
 from .cover import async_get_playnite_image
 from .connect_library import PlayniteGame, PlayniteConnectLibrary
+from .runtime_data import PlayniteConnectConfigEntry, get_runtime_data
+
+# Cover requests are bounded by the library-level semaphore.
+PARALLEL_UPDATES = 0
 
 _IMAGE_TYPES = ("cover", "background", "icon")
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
+    hass: HomeAssistant, entry: PlayniteConnectConfigEntry, async_add_entities
 ) -> None:
     """Add dynamic artwork only for the game Playnite is currently running."""
     async_add_entities(
@@ -34,24 +35,27 @@ class PlayniteCurrentGameImage(ImageEntity):
     _attr_should_poll = False
 
     def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, image_type: str
+        self,
+        hass: HomeAssistant,
+        entry: PlayniteConnectConfigEntry,
+        image_type: str,
     ) -> None:
         super().__init__(hass)
         self.hass = hass
         self._entry = entry
         self._image_type = image_type
-        self._library: PlayniteConnectLibrary = hass.data[DOMAIN][
-            entry.entry_id
-        ][DATA_LIBRARY]
+        self._runtime_data = get_runtime_data(entry)
+        self._library: PlayniteConnectLibrary = self._runtime_data["library"]
         self._attr_name = f"Playing Game {image_type.title()}"
         self._attr_unique_id = f"{entry.entry_id}_playing_game_{image_type}"
         self._image_game_id: str | None = None
         self._image_bytes: bytes | None = None
         self._content_type = "image/jpeg"
+        self._image_request_generation = 0
 
     @property
     def device_info(self):
-        device = self.hass.data[DOMAIN][self._entry.entry_id]["device"]
+        device = self._runtime_data["device"]
         return {"identifiers": device.identifiers}
 
     @property
@@ -83,13 +87,13 @@ class PlayniteCurrentGameImage(ImageEntity):
         """Invalidate the image when the active game changes."""
         game = self._active_game
         game_id = game.id if game else None
-        if game_id == self._image_game_id:
-            return
-        self._image_game_id = game_id
-        self._image_bytes = None
-        self._attr_image_last_updated = (
-            datetime.now(timezone.utc) if game_id is not None else None
-        )
+        if game_id != self._image_game_id:
+            self._image_request_generation += 1
+            self._image_game_id = game_id
+            self._image_bytes = None
+            self._attr_image_last_updated = (
+                datetime.now(timezone.utc) if game_id is not None else None
+            )
         self.async_write_ha_state()
 
     async def async_image(self) -> bytes | None:
@@ -98,13 +102,20 @@ class PlayniteCurrentGameImage(ImageEntity):
         if game is None:
             return None
         if self._image_bytes is None or self._image_game_id != game.id:
+            request_generation = self._image_request_generation
             image = await async_get_playnite_image(
                 self.hass,
-                self.hass.data[DOMAIN][self._entry.entry_id],
+                self._runtime_data,
                 game.id,
                 self._image_type,
             )
-            self._image_game_id = game.id
+            current_game = self._active_game
+            if (
+                request_generation != self._image_request_generation
+                or current_game is None
+                or current_game.id != game.id
+            ):
+                return None
             self._image_bytes = image.data
             self._content_type = image.content_type
         return self._image_bytes

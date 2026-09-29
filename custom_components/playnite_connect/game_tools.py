@@ -7,9 +7,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
-from .const import DATA_DEVICE_ID, DATA_LIBRARY, DOMAIN
+from .const import DOMAIN
 from .connect_library import PlayniteGame, PlayniteConnectLibrary
-
 
 DEFAULT_SEARCH_LIMIT = 20
 DEFAULT_SEARCH_OFFSET = 0
@@ -130,9 +129,11 @@ def _sort_search_results(
         return sorted(
             games,
             key=lambda game: (
-                -game.last_activity.timestamp()
-                if game.last_activity is not None
-                else float("inf"),
+                (
+                    -game.last_activity.timestamp()
+                    if game.last_activity is not None
+                    else float("inf")
+                ),
                 game.display_name.casefold(),
             ),
         )
@@ -223,12 +224,15 @@ def get_library(
     hass: HomeAssistant, device_id: str | None = None
 ) -> tuple[str, PlayniteConnectLibrary]:
     """Resolve a loaded Playnite Connect device, rejecting ambiguous calls."""
-    entries = hass.data.get(DOMAIN, {})
-    matches = [
-        (entry_data[DATA_DEVICE_ID], entry_data[DATA_LIBRARY])
-        for entry_data in entries.values()
-        if device_id is None or entry_data[DATA_DEVICE_ID] == device_id
-    ]
+    matches = []
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        runtime_data = entry.runtime_data
+        if runtime_data is None:
+            continue
+        if device_id is None or runtime_data["device_id"] == device_id:
+            matches.append(
+                (runtime_data["device_id"], runtime_data["library"])
+            )
     if not matches:
         raise ServiceValidationError(
             "No loaded Playnite Connect device matches that device ID"
@@ -290,9 +294,7 @@ async def async_search_games(
     else:
         games = matches[offset : offset + limit]
     next_offset = (
-        offset + len(games)
-        if offset + len(games) < len(matches)
-        else None
+        offset + len(games) if offset + len(games) < len(matches) else None
     )
     return {
         "device_id": resolved_device_id,

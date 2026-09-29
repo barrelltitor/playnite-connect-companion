@@ -16,14 +16,17 @@ from homeassistant.components.media_player import (
     SearchMedia,
     SearchMediaQuery,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import DATA_LIBRARY, DEFAULT_NAME, DOMAIN
+from .const import DEFAULT_NAME, DOMAIN
 from .connect_library import PlayniteGame, PlayniteConnectLibrary
+from .runtime_data import PlayniteConnectConfigEntry, get_runtime_data
+
 from .cover import async_get_playnite_image
 from .game_tools import find_games
+
+PARALLEL_UPDATES = 1
 
 _FILTER_PREFIX = "playnite-filter:"
 _DIRECT_FILTERS = {
@@ -45,7 +48,7 @@ _GROUP_FILTERS = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PlayniteConnectConfigEntry,
     async_add_entities,
 ) -> None:
     """Set up one library media-player entity for this Playnite device."""
@@ -64,20 +67,21 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
         | MediaPlayerEntityFeature.SEARCH_MEDIA
     )
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+    ) -> None:
         """Initialize the library player."""
         self.hass = hass
         self._entry = entry
-        self._library: PlayniteConnectLibrary = hass.data[DOMAIN][
-            entry.entry_id
-        ][DATA_LIBRARY]
+        self._runtime_data = get_runtime_data(entry)
+        self._library: PlayniteConnectLibrary = self._runtime_data["library"]
         self._remove_listener = None
         self._attr_unique_id = f"{entry.entry_id}_library"
 
     @property
     def device_info(self):
         """Return the Playnite device this library belongs to."""
-        device = self.hass.data[DOMAIN][self._entry.entry_id]["device"]
+        device = self._runtime_data["device"]
         return {"identifiers": device.identifiers}
 
     @property
@@ -129,7 +133,7 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
         try:
             image = await async_get_playnite_image(
                 self.hass,
-                self.hass.data[DOMAIN][self._entry.entry_id],
+                self._runtime_data,
                 game.id,
                 "cover",
             )
@@ -167,7 +171,9 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
 
         filter_data = self._parse_filter_id(media_content_id)
         if filter_data is None:
-            raise BrowseError(f"Unknown Playnite library item: {media_content_id}")
+            raise BrowseError(
+                f"Unknown Playnite library item: {media_content_id}"
+            )
         filter_name, filter_value = filter_data
         return self._browse_filter(filter_name, filter_value)
 
@@ -271,21 +277,35 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
                 can_expand=True,
                 can_search=True,
                 children=[
-                    self._browse_folder(
-                        f"{value} ({self._group_game_count(filter_name, value, visible_games)})",
-                        self._filter_id(filter_name, value),
-                        self._representative_game(filter_name, value),
+                    self._browse_group_folder(
+                        filter_name, value, visible_games
                     )
                     for value in values
                 ],
                 children_media_class=MediaClass.DIRECTORY,
             )
         if filter_value not in values:
-            raise BrowseError(f"Unknown Playnite {filter_name}: {filter_value}")
+            raise BrowseError(
+                f"Unknown Playnite {filter_name}: {filter_value}"
+            )
         return self._browse_games_page(
             filter_value,
             self._filter_id(filter_name, filter_value),
             self._filtered_games(filter_name, filter_value),
+        )
+
+    def _browse_group_folder(
+        self,
+        filter_name: str,
+        value: str,
+        games: tuple[PlayniteGame, ...],
+    ) -> BrowseMedia:
+        """Build a metadata folder with count and representative cover."""
+        count = self._group_game_count(filter_name, value, games)
+        return self._browse_folder(
+            f"{value} ({count})",
+            self._filter_id(filter_name, value),
+            self._representative_game(filter_name, value),
         )
 
     def _filtered_games(
@@ -326,7 +346,7 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
     def _representative_game(
         self, filter_name: str, filter_value: str | None = None
     ) -> PlayniteGame | None:
-        """Choose a stable representative cover without duplicating index tiles."""
+        """Choose a representative cover for each index tile."""
         games = self._filtered_games(filter_name, filter_value)
         if not games:
             return None
@@ -345,7 +365,9 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
     @staticmethod
     def _sort_games(games: Any) -> tuple[PlayniteGame, ...]:
         """Sort non-recent filter results alphabetically by displayed title."""
-        return tuple(sorted(games, key=lambda game: game.display_name.casefold()))
+        return tuple(
+            sorted(games, key=lambda game: game.display_name.casefold())
+        )
 
     @staticmethod
     def _group_values(
@@ -365,7 +387,7 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
     def _game_group_values(
         game: PlayniteGame, filter_name: str
     ) -> tuple[str, ...]:
-        """Return the appropriate metadata field without exposing empty values."""
+        """Return non-empty values for this metadata field."""
         if filter_name == "sources":
             return (game.source,) if game.source else ()
         return getattr(game, filter_name)
@@ -386,7 +408,8 @@ class PlayniteLibraryPlayer(MediaPlayerEntity):
     ) -> int:
         """Return an honest count for a group folder's label."""
         return sum(
-            cls._game_has_group_value(game, filter_name, value) for game in games
+            cls._game_has_group_value(game, filter_name, value)
+            for game in games
         )
 
     @staticmethod

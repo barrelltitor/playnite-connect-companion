@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_LIBRARY, DOMAIN
 from .connect_library import PlayniteGame, PlayniteConnectLibrary
+from .runtime_data import PlayniteConnectConfigEntry, get_runtime_data
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
+    hass: HomeAssistant, entry: PlayniteConnectConfigEntry, async_add_entities
 ) -> None:
     """Add status entities to the configured Playnite Connect device."""
     async_add_entities(
@@ -28,16 +29,17 @@ class _PlayniteConnectSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+    ) -> None:
         self.hass = hass
         self._entry = entry
-        self._library: PlayniteConnectLibrary = hass.data[DOMAIN][
-            entry.entry_id
-        ][DATA_LIBRARY]
+        self._runtime_data = get_runtime_data(entry)
+        self._library: PlayniteConnectLibrary = self._runtime_data["library"]
 
     @property
     def device_info(self):
-        device = self.hass.data[DOMAIN][self._entry.entry_id]["device"]
+        device = self._runtime_data["device"]
         return {"identifiers": device.identifiers}
 
     @property
@@ -56,7 +58,9 @@ class PlaynitePlayingGameSensor(_PlayniteConnectSensor):
     _attr_name = "Playing Game"
     _attr_icon = "mdi:gamepad"
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+    ) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{entry.entry_id}_playing_game"
 
@@ -97,7 +101,9 @@ class PlayniteActiveViewSensor(_PlayniteConnectSensor):
     _attr_name = "Active View"
     _attr_icon = "mdi:view-carousel"
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+    ) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{entry.entry_id}_active_view"
 

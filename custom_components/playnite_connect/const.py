@@ -17,7 +17,7 @@ DATA_COVER_API_URL = "cover_api_url"
 # Configuration-dictionary key; it never contains an actual token.
 DATA_COVER_API_TOKEN = "cover_api_token"  # nosec B105
 
-PLATFORMS = ["media_player", "sensor", "binary_sensor", "select", "image"]
+PLATFORMS = ["media_player", "sensor", "select", "image"]
 
 DEFAULT_NAME = "Playnite Connect"
 MQTT_TOPIC_PREFIX = "playnite"

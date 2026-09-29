@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import logging
 from typing import Any
 from uuid import uuid4
 
@@ -32,6 +33,48 @@ from .const import (
     MQTT_TOPIC_PREFIX,
     PROTOCOL_VERSION,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_test_connection(
+    hass: HomeAssistant, device_id: str, timeout: float = 5
+) -> None:
+    """Check the retained Playnite presence message for this MQTT device."""
+    loop = asyncio.get_running_loop()
+    connection: asyncio.Future[bool] = loop.create_future()
+
+    async def handle_connection(message: ReceiveMessage) -> None:
+        if not connection.done():
+            payload = message.payload
+            if isinstance(payload, bytes):
+                try:
+                    payload = payload.decode("utf-8")
+                except UnicodeDecodeError:
+                    payload = ""
+            connection.set_result(
+                isinstance(payload, str)
+                and payload.strip().casefold() == "online"
+            )
+
+    unsubscribe = await async_subscribe(
+        hass,
+        f"{MQTT_TOPIC_PREFIX}/{device_id}/connection",
+        handle_connection,
+        qos=1,
+    )
+    try:
+        try:
+            online = await asyncio.wait_for(connection, timeout)
+        except TimeoutError as err:
+            raise HomeAssistantError(
+                "Playnite Connect did not publish a retained connection status"
+            ) from err
+        if not online:
+            raise HomeAssistantError("The Playnite Connect plugin is offline")
+    finally:
+        unsubscribe()
+
 
 _MAX_COVER_BYTES = 10 * 1024 * 1024
 _MAX_COVER_CHUNKS = 256
@@ -205,6 +248,7 @@ class PlayniteConnectLibrary:
         self._unsubscribers: list[Callable[[], None]] = []
         self._library_ready = asyncio.Event()
         self._online = False
+        self._connection_state_seen = False
 
     @property
     def available(self) -> bool:
@@ -279,57 +323,53 @@ class PlayniteConnectLibrary:
 
     async def async_start(self) -> None:
         """Subscribe before requesting a complete retained library snapshot."""
-        self._unsubscribers = [
-            await async_subscribe(
-                self._hass,
+        subscriptions = (
+            (
                 self._topic(LIBRARY_MANIFEST_TOPIC),
                 self._async_handle_manifest,
-                qos=1,
             ),
-            await async_subscribe(
-                self._hass,
+            (
                 f"{self._topic(LIBRARY_CHUNK_TOPIC)}/#",
                 self._async_handle_chunk,
-                qos=1,
             ),
-            await async_subscribe(
-                self._hass,
+            (
                 self._topic(LIBRARY_UPDATE_TOPIC),
                 self._async_handle_update,
-                qos=1,
             ),
-            await async_subscribe(
-                self._hass,
+            (
                 self._topic(LIBRARY_STATUS_TOPIC),
                 self._async_handle_status,
-                qos=1,
             ),
-            await async_subscribe(
-                self._hass,
+            (
                 self._topic(LIBRARY_RESPONSE_TOPIC),
                 self._async_handle_response,
-                qos=1,
             ),
-            await async_subscribe(
-                self._hass,
+            (
                 f"{self._topic(LIBRARY_COVER_CHUNK_TOPIC)}/#",
                 self._async_handle_cover_chunk,
-                qos=1,
             ),
-            await async_subscribe(
-                self._hass,
-                self._topic("connection"),
-                self._async_handle_connection,
-                qos=1,
-            ),
-        ]
-        await self.async_request_snapshot()
+            (self._topic("connection"), self._async_handle_connection),
+        )
+        try:
+            for topic, handler in subscriptions:
+                unsubscribe = await async_subscribe(
+                    self._hass, topic, handler, qos=1
+                )
+                self._unsubscribers.append(unsubscribe)
+            await self.async_request_snapshot()
+        except Exception:
+            for unsubscribe in reversed(self._unsubscribers):
+                unsubscribe()
+            self._unsubscribers.clear()
+            raise
 
     async def async_stop(self) -> None:
         """Remove MQTT subscriptions and fail outstanding requests."""
         for unsubscribe in self._unsubscribers:
             unsubscribe()
         self._unsubscribers.clear()
+        self._online = False
+        self._notify_listeners()
         for future in (
             *self._command_waiters.values(),
             *self._cover_waiters.values(),
@@ -401,8 +441,8 @@ class PlayniteConnectLibrary:
         self, game_id: str, image_type: str = "cover"
     ) -> PlayniteCover:
         """Request one local image outside the library snapshot."""
-        # Acquire before publishing so a queued browser thumbnail does not spend
-        # its response timeout waiting behind other MQTT cover transfers.
+        # Acquire before publishing so time spent waiting behind other cover
+        # transfers does not consume this request's response timeout.
         async with self._cover_request_semaphore:
             request_id = str(uuid4())
             future: asyncio.Future[PlayniteCover] = (
@@ -433,8 +473,30 @@ class PlayniteConnectLibrary:
                 self._cover_metadata.pop(request_id, None)
 
     async def _async_handle_connection(self, message: ReceiveMessage) -> None:
-        self._online = message.payload.strip().casefold() == "online"
-        self._notify_listeners()
+        payload = message.payload
+        if isinstance(payload, bytes):
+            try:
+                payload = payload.decode("utf-8")
+            except UnicodeDecodeError:
+                payload = ""
+        online = (
+            isinstance(payload, str) and payload.strip().casefold() == "online"
+        )
+        if not self._connection_state_seen:
+            _LOGGER.info(
+                "Playnite Connect MQTT connection is %s",
+                "available" if online else "unavailable",
+            )
+        elif online != self._online:
+            if online:
+                _LOGGER.info("Playnite Connect MQTT connection restored")
+            else:
+                _LOGGER.info("Playnite Connect MQTT connection is unavailable")
+        changed = online != self._online
+        self._online = online
+        self._connection_state_seen = True
+        if changed:
+            self._notify_listeners()
 
     async def _async_handle_manifest(self, message: ReceiveMessage) -> None:
         raw = self._decode(message.payload)
@@ -625,7 +687,12 @@ class PlayniteConnectLibrary:
                 self._manifests.pop(revision, None)
 
     @staticmethod
-    def _decode(payload: str) -> dict[str, Any] | None:
+    def _decode(payload: str | bytes) -> dict[str, Any] | None:
+        if isinstance(payload, bytes):
+            try:
+                payload = payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return None
         try:
             raw = json.loads(payload)
         except (TypeError, json.JSONDecodeError):

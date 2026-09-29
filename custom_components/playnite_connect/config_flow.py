@@ -1,11 +1,16 @@
 """Configuration flow for Playnite Connect Companion."""
 
+import logging
 from typing import Any
 from urllib.parse import urlparse
 
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.components import mqtt
+from homeassistant.exceptions import HomeAssistantError
+
+from .connect_library import async_test_connection
 
 from .const import (
     CONF_CACHE_COVERS,
@@ -15,6 +20,8 @@ from .const import (
     CONF_DEVICE_ID,
     DOMAIN,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 _TRANSPORT_MQTT = "mqtt"
 _TRANSPORT_HTTP = "http"
@@ -33,6 +40,20 @@ class PlayniteConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle initial setup."""
         if user_input is not None:
             errors = self._validate_cover_settings(user_input)
+            if not errors:
+                device_id = user_input[CONF_DEVICE_ID]
+                if not mqtt.is_connected(self.hass):
+                    errors["base"] = "mqtt_not_connected"
+                else:
+                    try:
+                        await async_test_connection(self.hass, device_id)
+                    except HomeAssistantError:
+                        errors["base"] = "cannot_connect"
+                    except Exception:
+                        _LOGGER.exception(
+                            "Unexpected error testing Playnite Connect"
+                        )
+                        errors["base"] = "unknown"
             if not errors:
                 device_id = user_input[CONF_DEVICE_ID]
                 await self.async_set_unique_id(device_id)
@@ -59,7 +80,9 @@ class PlayniteConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(device_id)
                 self._abort_if_unique_id_mismatch()
                 return self.async_update_reload_and_abort(
-                    entry, data_updates=user_input, title="Playnite Connect Companion"
+                    entry,
+                    data_updates=user_input,
+                    title="Playnite Connect Companion",
                 )
             return self.async_show_form(
                 step_id="reconfigure",

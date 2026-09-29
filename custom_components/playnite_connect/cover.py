@@ -22,6 +22,7 @@ from .const import (
     DATA_LIBRARY,
     DOMAIN,
 )
+from .runtime_data import PlayniteConnectRuntimeData
 
 _CONTENT_TYPES = {
     "jpg": "image/jpeg",
@@ -45,7 +46,7 @@ class CachedCover:
 
 async def async_get_playnite_image(
     hass: HomeAssistant,
-    entry_data: dict,
+    entry_data: PlayniteConnectRuntimeData,
     game_id: str,
     image_type: str,
 ) -> CachedCover:
@@ -55,13 +56,24 @@ async def async_get_playnite_image(
 
     transport = entry_data.get(DATA_COVER_TRANSPORT, _TRANSPORT_MQTT)
     if transport == _TRANSPORT_MQTT:
-        return_cover = await entry_data[DATA_LIBRARY].async_get_cover(
+        cover = await entry_data[DATA_LIBRARY].async_get_cover(
             game_id, image_type
         )
-        return CachedCover(return_cover.data, return_cover.content_type)
+        return CachedCover(cover.data, cover.content_type)
+    if transport == _TRANSPORT_HTTP:
+        return await _async_get_http_image(
+            hass, entry_data, game_id, image_type
+        )
+    raise HomeAssistantError("Choose MQTT or HTTP for Playnite images")
 
-    if transport != _TRANSPORT_HTTP:
-        raise HomeAssistantError("Choose MQTT or HTTP for Playnite images")
+
+async def _async_get_http_image(
+    hass: HomeAssistant,
+    entry_data: PlayniteConnectRuntimeData,
+    game_id: str,
+    image_type: str,
+) -> CachedCover:
+    """Fetch one authenticated image from the optional Playnite API."""
     base_url = entry_data[DATA_COVER_API_URL]
     token = entry_data[DATA_COVER_API_TOKEN]
     if not base_url or not token:
@@ -118,9 +130,14 @@ class PlayniteCoverView(HomeAssistantView):
     async def get(
         self, request: web.Request, entry_id: str, game_id: str
     ) -> web.StreamResponse:
-        entry_data = self.hass.data.get(DOMAIN, {}).get(entry_id)
-        if entry_data is None:
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        if (
+            entry is None
+            or entry.domain != DOMAIN
+            or entry.runtime_data is None
+        ):
             raise web.HTTPNotFound()
+        entry_data = entry.runtime_data
         try:
             UUID(game_id)
         except ValueError as err:
@@ -151,7 +168,7 @@ class PlayniteCoverView(HomeAssistantView):
     async def _get_mqtt_cover(
         self,
         request: web.Request,
-        entry_data: dict,
+        entry_data: PlayniteConnectRuntimeData,
         cache_covers: bool,
         cache_dir: str,
         game_id: str,
@@ -172,7 +189,7 @@ class PlayniteCoverView(HomeAssistantView):
     async def _get_http_cover(
         self,
         request: web.Request,
-        entry_data: dict,
+        entry_data: PlayniteConnectRuntimeData,
         cache_covers: bool,
         cache_dir: str,
         game_id: str,
@@ -222,8 +239,10 @@ class PlayniteCoverView(HomeAssistantView):
             # With caching disabled, relay the image in chunks and discard it.
             # HA's authenticated endpoint is the only browser-visible URL.
             response = web.StreamResponse(
-                content_type=content_type,
-                headers={"Cache-Control": _browser_cache_control()},
+                headers={
+                    "Content-Type": content_type,
+                    "Cache-Control": _browser_cache_control(),
+                }
             )
             await response.prepare(request)
             async for chunk in upstream.content.iter_chunked(64 * 1024):
@@ -235,7 +254,7 @@ class PlayniteCoverView(HomeAssistantView):
 def _browser_cached_cover_response(
     request: web.Request, cover: CachedCover
 ) -> web.Response:
-    """Serve a cover with private browser caching and disk-cache revalidation."""
+    """Serve private covers with browser-cache validation."""
     etag = f'"{sha256(cover.data).hexdigest()}"'
     headers = {"Cache-Control": _browser_cache_control(), "ETag": etag}
     if request.headers.get("If-None-Match") in {etag, "*"}:
@@ -250,6 +269,7 @@ def _browser_cached_cover_response(
 def _browser_cache_control() -> str:
     """Keep authenticated covers in this browser, never in a shared proxy."""
     return f"private, max-age={_BROWSER_CACHE_SECONDS}"
+
 
 def _read_cached_cover(cache_dir: str, game_id: str) -> CachedCover | None:
     """Read a previously fetched cover from HA's configuration directory."""
