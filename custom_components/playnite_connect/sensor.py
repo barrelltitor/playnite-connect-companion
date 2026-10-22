@@ -6,6 +6,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 
 from .connect_library import PlayniteGame, PlayniteConnectLibrary
+from .const import DOMAIN
 from .runtime_data import PlayniteConnectConfigEntry, get_runtime_data
 
 PARALLEL_UPDATES = 0
@@ -18,6 +19,7 @@ async def async_setup_entry(
     async_add_entities(
         [
             PlaynitePlayingGameSensor(hass, entry),
+            PlayniteLastPlayedGameSensor(hass, entry),
             PlayniteActiveViewSensor(hass, entry),
         ]
     )
@@ -110,3 +112,55 @@ class PlayniteActiveViewSensor(_PlayniteConnectSensor):
     @property
     def native_value(self) -> str:
         return self._library.active_desktop_view or "Unknown"
+
+
+class PlayniteLastPlayedGameSensor(_PlayniteConnectSensor):
+    """Expose the most recent game and its publishing metadata."""
+
+    _attr_name = "Last Played Game"
+    _attr_icon = "mdi:history"
+
+    def __init__(
+        self, hass: HomeAssistant, entry: PlayniteConnectConfigEntry
+    ) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{entry.entry_id}_last_played_game"
+
+    @property
+    def _last_played_game(self) -> PlayniteGame | None:
+        return next(
+            (
+                game
+                for game in self._library.recent_games
+                if game.last_activity is not None
+            ),
+            None,
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        game = self._last_played_game
+        return game.display_name if game is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object] | None:
+        game = self._last_played_game
+        if game is None:
+            return None
+
+        attributes: dict[str, object] = {
+            "game_id": game.id,
+            "last_activity": game.last_activity.isoformat(),
+            "playtime": game.playtime,
+            "play_count": game.play_count,
+            "source": game.source,
+            "platforms": list(game.platforms),
+            "cover_url": (
+                f"/api/playnite_connect/{self._entry.entry_id}/cover/{game.id}"
+            ),
+        }
+        if self._runtime_data.get("cache_covers", False):
+            attributes["cover_cache_file_pattern"] = self.hass.config.path(
+                f"{DOMAIN}_covers", f"{game.id}.*"
+            )
+        return attributes

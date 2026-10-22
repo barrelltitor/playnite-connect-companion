@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0b4 - 2026-10-22 (Beta 4)
+
+- Added a Last Played Game sensor with game identity, activity time, playtime,
+  play count, and cover references.
+
 ## 1.0.0b3 - 2026-09-17 (Beta 3)
 
 - Added an **Available** connectivity binary sensor for Playnite startup flows.

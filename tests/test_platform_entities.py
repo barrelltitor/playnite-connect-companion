@@ -1,6 +1,7 @@
 """Tests for Playnite status and selection entities."""
 
 import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -12,7 +13,15 @@ from custom_components.playnite_connect import select, sensor
 from custom_components.playnite_connect.connect_library import PlayniteGame
 
 
-def _game(game_id: str, *, running: bool = False, launching: bool = False):
+def _game(
+    game_id: str,
+    *,
+    running: bool = False,
+    launching: bool = False,
+    last_activity=None,
+    playtime=None,
+    play_count=0,
+):
     return PlayniteGame(
         id=game_id,
         name="Same Game" if game_id != "other" else "Other Game",
@@ -24,13 +33,15 @@ def _game(game_id: str, *, running: bool = False, launching: bool = False):
         is_running=running,
         is_launching=launching,
         install_size=None,
-        last_activity=None,
+        last_activity=last_activity,
         source="Steam",
         platforms=(),
         categories=(),
         tags=(),
         features=(),
         genres=(),
+        playtime=playtime,
+        play_count=play_count,
     )
 
 
@@ -42,6 +53,19 @@ class _Library:
         self.active_desktop_view = "recent_activity"
         self.async_command = AsyncMock()
         self.listeners = []
+
+    @property
+    def recent_games(self):
+        return tuple(
+            sorted(
+                self.games,
+                key=lambda game: (
+                    -game.last_activity.timestamp()
+                    if game.last_activity is not None
+                    else float("inf")
+                ),
+            )
+        )
 
     def async_add_listener(self, listener):
         self.listeners.append(listener)
@@ -117,7 +141,7 @@ def test_sensor_entities_report_game_and_view_state():
             SimpleNamespace(), entry, lambda added: entities.extend(added)
         )
     )
-    playing, active_view = entities
+    playing, last_played, active_view = entities
 
     assert playing.native_value == "Other Game"
     assert playing.extra_state_attributes == {
@@ -129,6 +153,8 @@ def test_sensor_entities_report_game_and_view_state():
         "platforms": [],
     }
     assert active_view.native_value == "recent_activity"
+    assert last_played.native_value is None
+    assert last_played.extra_state_attributes is None
     assert all(entity.available for entity in entities)
 
     library.games = (_game("other"),)
@@ -140,6 +166,49 @@ def test_sensor_entities_report_game_and_view_state():
     for entity in entities:
         entity.async_on_remove = lambda callback: None
         asyncio.run(entity.async_added_to_hass())
-    assert len(library.listeners) == 2
+    assert len(library.listeners) == 3
     library.available = False
     assert not any(entity.available for entity in entities)
+
+
+def test_last_played_sensor_exposes_game_identity_activity_and_cover_path():
+    recent = _game(
+        "recent-id",
+        last_activity=datetime(2026, 10, 20, 18, 30, tzinfo=timezone.utc),
+        playtime="3.04:05:06",
+        play_count=12,
+    )
+    older = _game(
+        "older-id",
+        last_activity=datetime(2026, 10, 19, 10, 0, tzinfo=timezone.utc),
+    )
+    library = _Library()
+    library.games = (older, recent)
+    entry = _entry(library)
+    entry.runtime_data["cache_covers"] = True
+    hass = SimpleNamespace(
+        config=SimpleNamespace(
+            path=lambda *parts: "/config/" + "/".join(parts)
+        )
+    )
+    entities = []
+
+    asyncio.run(
+        sensor.async_setup_entry(hass, entry, lambda added: entities.extend(added))
+    )
+
+    entity = entities[1]
+    assert entity.unique_id == "entry-id_last_played_game"
+    assert entity.native_value == "Same Game"
+    assert entity.extra_state_attributes == {
+        "game_id": "recent-id",
+        "last_activity": "2026-10-20T18:30:00+00:00",
+        "playtime": "3.04:05:06",
+        "play_count": 12,
+        "source": "Steam",
+        "platforms": [],
+        "cover_url": "/api/playnite_connect/entry-id/cover/recent-id",
+        "cover_cache_file_pattern": (
+            "/config/playnite_connect_covers/recent-id.*"
+        ),
+    }

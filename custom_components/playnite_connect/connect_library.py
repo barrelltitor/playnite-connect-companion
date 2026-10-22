@@ -104,6 +104,8 @@ class PlayniteGame:
     tags: tuple[str, ...]
     features: tuple[str, ...]
     genres: tuple[str, ...]
+    playtime: str | None = None
+    play_count: int = 0
 
     @property
     def display_name(self) -> str:
@@ -155,6 +157,8 @@ class PlayniteGame:
             last_activity = None
 
         install_size = raw.get("installSize")
+        playtime = raw.get("playtime")
+        play_count = raw.get("playCount")
         return cls(
             id=game_id,
             name=name,
@@ -179,6 +183,12 @@ class PlayniteGame:
             tags=names(raw.get("tags")),
             features=names(raw.get("features")),
             genres=names(raw.get("genres")),
+            playtime=playtime if isinstance(playtime, str) else None,
+            play_count=(
+                play_count
+                if isinstance(play_count, int) and not isinstance(play_count, bool)
+                else 0
+            ),
         )
 
 

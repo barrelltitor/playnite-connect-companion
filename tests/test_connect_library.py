@@ -43,6 +43,8 @@ def test_game_parser_normalizes_metadata_platforms_and_activity():
             tags=["Co-op"],
             lastActivity="2026-09-20T12:30:00Z",
             installSize=1234,
+            playtime="12.02:45:10",
+            playCount=23,
         )
     )
 
@@ -53,6 +55,8 @@ def test_game_parser_normalizes_metadata_platforms_and_activity():
     assert game.tags == ("Co-op",)
     assert game.last_activity.isoformat() == "2026-09-20T12:30:00+00:00"
     assert game.install_size == 1234
+    assert game.playtime == "12.02:45:10"
+    assert game.play_count == 23
 
 
 def test_snapshot_activates_only_after_all_chunks_arrive():
