@@ -256,6 +256,7 @@ async def _create_entry_runtime_data(
         cover_transport=str(entry.data.get(CONF_COVER_TRANSPORT, "mqtt")),
         cover_api_url=str(entry.data.get(CONF_COVER_API_URL, "")),
         cover_api_token=str(entry.data.get(CONF_COVER_API_TOKEN, "")),
+        cached_cover_paths={},
         remove_lifecycle_listener=remove_lifecycle_listener,
         remove_device_version_listener=remove_device_version_listener,
     )

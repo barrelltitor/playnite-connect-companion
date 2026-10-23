@@ -1,6 +1,7 @@
 """Constants for Playnite Connect Companion."""
 
 DOMAIN = "playnite_connect"
+SIGNAL_COVER_CACHED = f"{DOMAIN}_cover_cached"
 
 CONF_DEVICE_ID = "device_id"
 CONF_CACHE_COVERS = "cache_covers"

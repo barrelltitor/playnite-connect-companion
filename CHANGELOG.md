@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0b5 - 2026-10-23 (Beta 5)
+
+- Expose the exact cached cover file path on the Last Played Game sensor.
+
 ## 1.0.0b4 - 2026-10-22 (Beta 4)
 
 - Added a Last Played Game sensor with game identity, activity time, playtime,

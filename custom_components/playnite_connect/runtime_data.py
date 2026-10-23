@@ -21,6 +21,7 @@ class PlayniteConnectRuntimeData(TypedDict):
     cover_transport: str
     cover_api_url: str
     cover_api_token: str
+    cached_cover_paths: dict[str, str]
     remove_lifecycle_listener: Callable[[], None]
     remove_device_version_listener: Callable[[], None]
 

@@ -22,10 +22,37 @@ from custom_components.playnite_connect import cover
 def test_cached_cover_round_trip(tmp_path, content_type, extension):
     cached = cover.CachedCover(b"cover", content_type)
 
-    cover._write_cached_cover(str(tmp_path), "game", cached)
+    path = cover._write_cached_cover(str(tmp_path), "game", cached)
 
     assert (tmp_path / f"game.{extension}").read_bytes() == b"cover"
+    assert path == str(tmp_path / f"game.{extension}")
     assert cover._read_cached_cover(str(tmp_path), "game") == cached
+    assert cover._scan_cached_cover_paths(str(tmp_path)) == {
+        "game": str(tmp_path / f"game.{extension}")
+    }
+
+
+def test_replacing_cached_cover_removes_old_extension(tmp_path):
+    old_cover = cover.CachedCover(b"old", "image/jpeg")
+    new_cover = cover.CachedCover(b"new", "image/png")
+    cover._write_cached_cover(str(tmp_path), "game", old_cover)
+
+    path = cover._write_cached_cover(str(tmp_path), "game", new_cover)
+
+    assert path == str(tmp_path / "game.png")
+    assert not (tmp_path / "game.jpg").exists()
+    assert cover._read_cached_cover(str(tmp_path), "game") == new_cover
+
+
+def test_cover_path_scan_uses_serving_extension_priority(tmp_path):
+    preferred = tmp_path / "game.jpg"
+    alternate = tmp_path / "game.png"
+    preferred.write_bytes(b"jpeg")
+    alternate.write_bytes(b"png")
+
+    assert cover._scan_cached_cover_paths(str(tmp_path)) == {
+        "game": str(preferred)
+    }
 
 
 def test_cached_http_response_sets_private_cache_headers():
@@ -118,7 +145,12 @@ def test_http_cover_stream_without_disk_cache_sets_content_type(
 
     response = asyncio.run(
         view._get_http_cover(
-            SimpleNamespace(), entry_data, False, str(tmp_path), "game"
+            SimpleNamespace(),
+            "entry-id",
+            entry_data,
+            False,
+            str(tmp_path),
+            "game",
         )
     )
 

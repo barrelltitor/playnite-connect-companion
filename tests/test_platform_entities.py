@@ -81,6 +81,8 @@ def _entry(library):
         entry_id="entry-id",
         runtime_data={
             "library": library,
+            "cache_covers": False,
+            "cached_cover_paths": {},
             "device": SimpleNamespace(
                 identifiers={("playnite_connect", "playnite")}
             ),
@@ -171,7 +173,9 @@ def test_sensor_entities_report_game_and_view_state():
     assert not any(entity.available for entity in entities)
 
 
-def test_last_played_sensor_exposes_game_identity_activity_and_cover_path():
+def test_last_played_sensor_exposes_game_identity_activity_and_cover_path(
+    tmp_path,
+):
     recent = _game(
         "recent-id",
         last_activity=datetime(2026, 10, 20, 18, 30, tzinfo=timezone.utc),
@@ -186,10 +190,19 @@ def test_last_played_sensor_exposes_game_identity_activity_and_cover_path():
     library.games = (older, recent)
     entry = _entry(library)
     entry.runtime_data["cache_covers"] = True
+    cache_dir = tmp_path / "playnite_connect_covers"
+    cache_dir.mkdir()
+    cover_path = cache_dir / "recent-id.webp"
+    cover_path.write_bytes(b"cover")
+
+    def config_path(*parts):
+        return str(tmp_path.joinpath(*parts))
+
     hass = SimpleNamespace(
-        config=SimpleNamespace(
-            path=lambda *parts: "/config/" + "/".join(parts)
-        )
+        config=SimpleNamespace(path=config_path),
+        async_add_executor_job=lambda func, *args: asyncio.to_thread(
+            func, *args
+        ),
     )
     entities = []
 
@@ -207,8 +220,5 @@ def test_last_played_sensor_exposes_game_identity_activity_and_cover_path():
         "play_count": 12,
         "source": "Steam",
         "platforms": [],
-        "cover_url": "/api/playnite_connect/entry-id/cover/recent-id",
-        "cover_cache_file_pattern": (
-            "/config/playnite_connect_covers/recent-id.*"
-        ),
+        "cover_file_path": str(cover_path),
     }

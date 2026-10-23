@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .connect_library import PlayniteGame, PlayniteConnectLibrary
-from .const import DOMAIN
+from .const import DOMAIN, SIGNAL_COVER_CACHED
+from .cover import _scan_cached_cover_paths
 from .runtime_data import PlayniteConnectConfigEntry, get_runtime_data
 
 PARALLEL_UPDATES = 0
@@ -16,6 +18,13 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: PlayniteConnectConfigEntry, async_add_entities
 ) -> None:
     """Add status entities to the configured Playnite Connect device."""
+    runtime_data = get_runtime_data(entry)
+    if runtime_data["cache_covers"]:
+        cached_paths = await hass.async_add_executor_job(
+            _scan_cached_cover_paths,
+            hass.config.path(f"{DOMAIN}_covers"),
+        )
+        runtime_data["cached_cover_paths"].update(cached_paths)
     async_add_entities(
         [
             PlaynitePlayingGameSensor(hass, entry),
@@ -126,6 +135,21 @@ class PlayniteLastPlayedGameSensor(_PlayniteConnectSensor):
         super().__init__(hass, entry)
         self._attr_unique_id = f"{entry.entry_id}_last_played_game"
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{SIGNAL_COVER_CACHED}_{self._entry.entry_id}",
+                self._async_cover_cached,
+            )
+        )
+
+    def _async_cover_cached(self, game_id: str) -> None:
+        game = self._last_played_game
+        if game is not None and game.id == game_id:
+            self.async_write_ha_state()
+
     @property
     def _last_played_game(self) -> PlayniteGame | None:
         return next(
@@ -155,12 +179,9 @@ class PlayniteLastPlayedGameSensor(_PlayniteConnectSensor):
             "play_count": game.play_count,
             "source": game.source,
             "platforms": list(game.platforms),
-            "cover_url": (
-                f"/api/playnite_connect/{self._entry.entry_id}/cover/{game.id}"
-            ),
         }
         if self._runtime_data.get("cache_covers", False):
-            attributes["cover_cache_file_pattern"] = self.hass.config.path(
-                f"{DOMAIN}_covers", f"{game.id}.*"
-            )
+            attributes["cover_file_path"] = self._runtime_data[
+                "cached_cover_paths"
+            ].get(game.id)
         return attributes

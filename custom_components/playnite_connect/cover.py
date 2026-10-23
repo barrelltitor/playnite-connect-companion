@@ -13,6 +13,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     DATA_CACHE_COVERS,
@@ -21,6 +22,7 @@ from .const import (
     DATA_COVER_TRANSPORT,
     DATA_LIBRARY,
     DOMAIN,
+    SIGNAL_COVER_CACHED,
 )
 from .runtime_data import PlayniteConnectRuntimeData
 
@@ -150,16 +152,30 @@ class PlayniteCoverView(HomeAssistantView):
                 _read_cached_cover, cache_dir, game_id
             )
             if cached_cover is not None:
+                cached_path = await (
+                    self.hass.async_add_executor_job(
+                        _get_cached_cover_path, cache_dir, game_id
+                    )
+                )
+                if cached_path is not None:
+                    entry_data["cached_cover_paths"][game_id] = str(
+                        cached_path
+                    )
+                    async_dispatcher_send(
+                        self.hass,
+                        f"{SIGNAL_COVER_CACHED}_{entry_id}",
+                        game_id,
+                    )
                 return _browser_cached_cover_response(request, cached_cover)
 
         transport = entry_data.get(DATA_COVER_TRANSPORT, _TRANSPORT_MQTT)
         if transport == _TRANSPORT_MQTT:
             return await self._get_mqtt_cover(
-                request, entry_data, cache_covers, cache_dir, game_id
+                request, entry_id, entry_data, cache_covers, cache_dir, game_id
             )
         if transport == _TRANSPORT_HTTP:
             return await self._get_http_cover(
-                request, entry_data, cache_covers, cache_dir, game_id
+                request, entry_id, entry_data, cache_covers, cache_dir, game_id
             )
         raise web.HTTPServiceUnavailable(
             text="Choose MQTT or HTTP for Playnite covers."
@@ -168,6 +184,7 @@ class PlayniteCoverView(HomeAssistantView):
     async def _get_mqtt_cover(
         self,
         request: web.Request,
+        entry_id: str,
         entry_data: PlayniteConnectRuntimeData,
         cache_covers: bool,
         cache_dir: str,
@@ -181,14 +198,15 @@ class PlayniteCoverView(HomeAssistantView):
 
         cached_cover = CachedCover(cover.data, cover.content_type)
         if cache_covers:
-            await self.hass.async_add_executor_job(
-                _write_cached_cover, cache_dir, game_id, cached_cover
+            await self._async_cache_cover(
+                entry_id, entry_data, cache_dir, game_id, cached_cover
             )
         return _browser_cached_cover_response(request, cached_cover)
 
     async def _get_http_cover(
         self,
         request: web.Request,
+        entry_id: str,
         entry_data: PlayniteConnectRuntimeData,
         cache_covers: bool,
         cache_dir: str,
@@ -231,8 +249,8 @@ class PlayniteCoverView(HomeAssistantView):
 
             if cache_covers:
                 cover = CachedCover(await upstream.read(), content_type)
-                await self.hass.async_add_executor_job(
-                    _write_cached_cover, cache_dir, game_id, cover
+                await self._async_cache_cover(
+                    entry_id, entry_data, cache_dir, game_id, cover
                 )
                 return _browser_cached_cover_response(request, cover)
 
@@ -249,6 +267,23 @@ class PlayniteCoverView(HomeAssistantView):
                 await response.write(chunk)
             await response.write_eof()
             return response
+
+    async def _async_cache_cover(
+        self,
+        entry_id: str,
+        entry_data: PlayniteConnectRuntimeData,
+        cache_dir: str,
+        game_id: str,
+        cover: CachedCover,
+    ) -> None:
+        """Cache a cover and notify entities of its concrete file path."""
+        path = await self.hass.async_add_executor_job(
+            _write_cached_cover, cache_dir, game_id, cover
+        )
+        entry_data["cached_cover_paths"][game_id] = path
+        async_dispatcher_send(
+            self.hass, f"{SIGNAL_COVER_CACHED}_{entry_id}", game_id
+        )
 
 
 def _browser_cached_cover_response(
@@ -273,17 +308,42 @@ def _browser_cache_control() -> str:
 
 def _read_cached_cover(cache_dir: str, game_id: str) -> CachedCover | None:
     """Read a previously fetched cover from HA's configuration directory."""
+    path = _get_cached_cover_path(cache_dir, game_id)
+    if path is None:
+        return None
+    return CachedCover(path.read_bytes(), _CONTENT_TYPES[path.suffix[1:]])
+
+
+def _get_cached_cover_path(cache_dir: str, game_id: str) -> Path | None:
+    """Find the exact persisted cover path for one game."""
     root = Path(cache_dir)
-    for extension, content_type in _CONTENT_TYPES.items():
+    for extension in _CONTENT_TYPES:
         path = root / f"{game_id}.{extension}"
         if path.is_file():
-            return CachedCover(path.read_bytes(), content_type)
+            return path
     return None
+
+
+def _scan_cached_cover_paths(cache_dir: str) -> dict[str, str]:
+    """Index existing cached covers by game ID during sensor setup."""
+    root = Path(cache_dir)
+    if not root.is_dir():
+        return {}
+    game_ids = {
+        path.stem
+        for path in root.iterdir()
+        if path.is_file() and path.suffix[1:] in _CONTENT_TYPES
+    }
+    return {
+        game_id: str(path)
+        for game_id in game_ids
+        if (path := _get_cached_cover_path(cache_dir, game_id)) is not None
+    }
 
 
 def _write_cached_cover(
     cache_dir: str, game_id: str, cover: CachedCover
-) -> None:
+) -> str:
     """Persist one cover only when the user opted into HA disk caching."""
     extension = next(
         (
@@ -295,4 +355,10 @@ def _write_cached_cover(
     )
     root = Path(cache_dir)
     root.mkdir(parents=True, exist_ok=True)
-    (root / f"{game_id}.{extension}").write_bytes(cover.data)
+    path = root / f"{game_id}.{extension}"
+    path.write_bytes(cover.data)
+    for previous_extension in _CONTENT_TYPES:
+        previous_path = root / f"{game_id}.{previous_extension}"
+        if previous_path != path and previous_path.is_file():
+            previous_path.unlink()
+    return str(path)
