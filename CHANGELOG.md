@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0b6 - 2026-10-26 (Beta 6)
+
+- Expose Playnite game/store links as the `game_url` attribute on game data.
+
 ## 1.0.0b5 - 2026-10-23 (Beta 5)
 
 - Expose the exact cached cover file path on the Last Played Game sensor.

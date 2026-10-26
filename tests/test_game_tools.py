@@ -27,6 +27,7 @@ def make_game(
     genres=(),
     features=(),
     last_activity=None,
+    game_url=None,
 ):
     return PlayniteGame(
         id=game_id,
@@ -46,6 +47,7 @@ def make_game(
         tags=tags,
         features=features,
         genres=genres,
+        game_url=game_url,
     )
 
 
@@ -191,7 +193,15 @@ def test_async_search_games_returns_total_and_next_page_metadata():
 
 
 def test_launch_game_sends_exact_game_id():
-    library = FakeLibrary([make_game("uuid-123", "Portal")])
+    library = FakeLibrary(
+        [
+            make_game(
+                "uuid-123",
+                "Portal",
+                game_url="https://store.example.test/portal",
+            )
+        ]
+    )
 
     result = asyncio.run(
         game_tools.async_launch_game(make_hass(library), "uuid-123")
@@ -199,6 +209,7 @@ def test_launch_game_sends_exact_game_id():
 
     assert library.commands == [("start", "uuid-123")]
     assert result["game"]["game_id"] == "uuid-123"
+    assert result["game"]["game_url"] == "https://store.example.test/portal"
 
 
 @pytest.mark.parametrize("game_id", ["missing", "hidden"])

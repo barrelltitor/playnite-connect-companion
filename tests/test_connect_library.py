@@ -45,6 +45,7 @@ def test_game_parser_normalizes_metadata_platforms_and_activity():
             installSize=1234,
             playtime="12.02:45:10",
             playCount=23,
+            gameUrl="https://store.example.test/games/example",
         )
     )
 
@@ -57,6 +58,22 @@ def test_game_parser_normalizes_metadata_platforms_and_activity():
     assert game.install_size == 1234
     assert game.playtime == "12.02:45:10"
     assert game.play_count == 23
+    assert game.game_url == "https://store.example.test/games/example"
+
+
+@pytest.mark.parametrize(
+    "game_url",
+    [None, "", "steam://run/123", "javascript:alert(1)", "https://"],
+)
+def test_game_parser_keeps_missing_or_non_http_url_empty(game_url):
+    raw = game_payload()
+    if game_url is not None:
+        raw["gameUrl"] = game_url
+
+    game = connect_library.PlayniteGame.from_payload(raw)
+
+    assert game is not None
+    assert game.game_url is None
 
 
 def test_snapshot_activates_only_after_all_chunks_arrive():
@@ -184,7 +201,11 @@ def test_update_notifies_library_and_lifecycle_listeners():
                     {
                         "protocolVersion": PROTOCOL_VERSION,
                         "event": "game_started",
-                        "game": game_payload("game-id", "Example"),
+                        "game": game_payload(
+                            "game-id",
+                            "Example",
+                            gameUrl="https://example.test/game",
+                        ),
                     }
                 )
             )
@@ -196,6 +217,10 @@ def test_update_notifies_library_and_lifecycle_listeners():
     assert len(events) == 1
     assert events[0].event_type == "game_started"
     assert events[0].game.id == "game-id"
+    assert (
+        events[0].as_event_data("living-room-pc")["game_url"]
+        == "https://example.test/game"
+    )
     assert (
         events[0].as_event_data("living-room-pc")["device_id"]
         == "living-room-pc"

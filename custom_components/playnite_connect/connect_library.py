@@ -10,6 +10,7 @@ from datetime import datetime
 import json
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from homeassistant.components.mqtt import (
@@ -83,6 +84,24 @@ _MAX_COVER_CHUNKS = 256
 _MAX_CONCURRENT_COVER_REQUESTS = 2
 
 
+def _normalize_game_url(value: Any) -> str | None:
+    """Accept only absolute HTTP(S) links from the Playnite payload."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    try:
+        parsed = urlsplit(normalized)
+    except ValueError:
+        return None
+    if (
+        parsed.scheme.casefold() not in {"http", "https"}
+        or not parsed.netloc
+        or not parsed.hostname
+    ):
+        return None
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class PlayniteGame:
     """A game received from the local Playnite Connect plugin."""
@@ -106,6 +125,7 @@ class PlayniteGame:
     genres: tuple[str, ...]
     playtime: str | None = None
     play_count: int = 0
+    game_url: str | None = None
 
     @property
     def display_name(self) -> str:
@@ -189,6 +209,7 @@ class PlayniteGame:
                 if isinstance(play_count, int) and not isinstance(play_count, bool)
                 else 0
             ),
+            game_url=_normalize_game_url(raw.get("gameUrl")),
         )
 
 
@@ -213,6 +234,7 @@ class PlayniteLifecycleEvent:
             "device_id": device_id,
             "game_id": self.game.id,
             "name": self.game.name,
+            "game_url": self.game.game_url or "",
             "hidden": self.game.hidden,
             "favorite": self.game.favorite,
             "is_installed": self.game.is_installed,

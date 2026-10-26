@@ -203,6 +203,7 @@ def game_as_result(game: PlayniteGame) -> dict[str, Any]:
         "game_id": game.id,
         "name": game.name,
         "display_name": game.display_name,
+        "game_url": game.game_url or "",
         "is_installed": game.is_installed,
         "is_installing": game.is_installing,
         "is_uninstalling": game.is_uninstalling,

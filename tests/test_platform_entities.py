@@ -21,6 +21,7 @@ def _game(
     last_activity=None,
     playtime=None,
     play_count=0,
+    game_url=None,
 ):
     return PlayniteGame(
         id=game_id,
@@ -42,6 +43,7 @@ def _game(
         genres=(),
         playtime=playtime,
         play_count=play_count,
+        game_url=game_url,
     )
 
 
@@ -148,6 +150,7 @@ def test_sensor_entities_report_game_and_view_state():
     assert playing.native_value == "Other Game"
     assert playing.extra_state_attributes == {
         "game_id": "other",
+        "game_url": "",
         "is_running": True,
         "is_launching": False,
         "is_installed": True,
@@ -181,6 +184,7 @@ def test_last_played_sensor_exposes_game_identity_activity_and_cover_path(
         last_activity=datetime(2026, 10, 20, 18, 30, tzinfo=timezone.utc),
         playtime="3.04:05:06",
         play_count=12,
+        game_url="https://example.test/recent-game",
     )
     older = _game(
         "older-id",
@@ -215,6 +219,7 @@ def test_last_played_sensor_exposes_game_identity_activity_and_cover_path(
     assert entity.native_value == "Same Game"
     assert entity.extra_state_attributes == {
         "game_id": "recent-id",
+        "game_url": "https://example.test/recent-game",
         "last_activity": "2026-10-20T18:30:00+00:00",
         "playtime": "3.04:05:06",
         "play_count": 12,

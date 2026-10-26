@@ -98,6 +98,7 @@ class PlaynitePlayingGameSensor(_PlayniteConnectSensor):
             return None
         return {
             "game_id": game.id,
+            "game_url": game.game_url or "",
             "is_running": game.is_running,
             "is_launching": game.is_launching,
             "is_installed": game.is_installed,
@@ -174,6 +175,7 @@ class PlayniteLastPlayedGameSensor(_PlayniteConnectSensor):
 
         attributes: dict[str, object] = {
             "game_id": game.id,
+            "game_url": game.game_url or "",
             "last_activity": game.last_activity.isoformat(),
             "playtime": game.playtime,
             "play_count": game.play_count,
